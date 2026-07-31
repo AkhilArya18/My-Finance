@@ -104,7 +104,13 @@
         <div class="grid-2 ai-layout">
           <article class="panel">
             <div class="panel-head"><div><h3>Gemini Finance AI</h3><p>Describe a transaction naturally or ask about your dashboard.</p></div></div>
-            <div id="aiMessages" class="ai-messages"><div class="ai-message assistant">Try: “Spent ₹850 on groceries through UPI today” or “How can I improve my savings rate this year?”</div></div>
+            <div class="ai-chips">
+              <button class="ai-chip" data-prompt="Summarize my financial dashboard and overall health for this year">📊 Summarize Dashboard</button>
+              <button class="ai-chip" data-prompt="How can I improve my savings rate and reduce expenses?">💡 Savings Advice</button>
+              <button class="ai-chip" data-prompt="Spent ₹1,200 on Groceries through UPI today">🛒 Add ₹1,200 Groceries</button>
+              <button class="ai-chip" data-prompt="Received ₹85,000 Salary in HDFC Bank today">💰 Add ₹85,000 Salary</button>
+            </div>
+            <div id="aiMessages" class="ai-messages"><div class="ai-message assistant">Try typing: “Spent ₹850 on groceries through UPI today” or click one of the quick prompts above to get started!</div></div>
             <form id="aiForm" class="ai-form"><textarea id="aiInput" maxlength="2000" rows="3" placeholder="Ask Gemini or record a transaction..."></textarea><button class="primary" type="submit">Send</button></form>
           </article>
           <article class="panel"><h3>AI permissions</h3><p>Gemini receives only your selected-year summary and recent transactions through the secure backend. The API key is never exposed to the browser.</p><div class="check-grid"><div>✓ Read dashboard summary</div><div>✓ Review recent entries</div><div>✓ Add clear transactions</div><div>✓ Suggest budgets</div><div>✓ Explain spending patterns</div><div>✓ No direct database credentials</div></div><p class="muted">Review AI-created entries. AI guidance is educational and is not regulated financial advice.</p></article>

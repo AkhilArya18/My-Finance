@@ -39,8 +39,15 @@ function download(url){const a=document.createElement('a');a.href=url;a.click()}
 let restoreData=null;$('#restoreFile').onchange=async e=>{try{restoreData=JSON.parse(await e.target.files[0].text());$('#restoreBtn').disabled=false}catch{restoreData=null;$('#restoreBtn').disabled=true;toast('Invalid JSON file',true)}};$('#restoreBtn').onclick=async()=>{if(!restoreData||!confirm('Replace all current account data with this backup?'))return;try{await api('/api/restore',{method:'POST',body:JSON.stringify(restoreData)});toast('Backup restored');await refreshAll()}catch(err){toast(err.message,true)}};
 
 function addAiMessage(text,role){const el=document.createElement('div');el.className=`ai-message ${role}`;el.textContent=text;$('#aiMessages').append(el);$('#aiMessages').scrollTop=$('#aiMessages').scrollHeight}
-$('#aiForm').onsubmit=async e=>{e.preventDefault();const input=$('#aiInput'),message=input.value.trim();if(!message)return;addAiMessage(message,'user');input.value='';const btn=e.submitter;btn.disabled=true;btn.textContent='Thinking…';try{const d=await api('/api/ai/chat',{method:'POST',body:JSON.stringify({message,year:state.year})});addAiMessage(d.reply+(d.added?`
+$$('.ai-chip').forEach(chip => {
+  chip.onclick = () => {
+    const input = $('#aiInput');
+    input.value = chip.dataset.prompt;
+    $('#aiForm').requestSubmit();
+  };
+});
+$('#aiForm').onsubmit=async e=>{e.preventDefault();const input=$('#aiInput'),message=input.value.trim();if(!message)return;addAiMessage(message,'user');input.value='';const btn=e.submitter||$('#aiForm button[type="submit"]');btn.disabled=true;btn.textContent='Thinking…';try{const d=await api('/api/ai/chat',{method:'POST',body:JSON.stringify({message,year:state.year})});addAiMessage(d.reply+(d.added?`
 
-Added: ${d.added.type} · ${d.added.category} · ${money(d.added.amount)} on ${d.added.txn_date}`:''),'assistant');if(d.added){toast('AI added the transaction');await refreshAll()}}catch(err){addAiMessage('Error: '+err.message,'assistant')}finally{btn.disabled=false;btn.textContent='Send'}};
+✅ Added Transaction: ${d.added.type.toUpperCase()} · ${d.added.category} · ${money(d.added.amount)} on ${d.added.txn_date}`:''),'assistant');if(d.added){toast('AI added the transaction');await refreshAll()}}catch(err){addAiMessage('Error: '+err.message,'assistant')}finally{btn.disabled=false;btn.textContent='Send'}};
 
 init().catch(e=>{console.error(e);toast('Application could not start.',true)});
