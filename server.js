@@ -2,22 +2,35 @@
 const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto');
 const categories = require('./categories');
 const PORT = Number(process.env.PORT || 3000), PUB = path.join(__dirname, 'public');
+const SECRET = process.env.SESSION_SECRET || 'lifetime_finance_tracker_secret_2026_secure';
 
-let DATA = path.resolve(process.env.DB_PATH || './data/finance.json');
+const isVercel = !!process.env.VERCEL;
+let DATA = isVercel ? '/tmp/finance.json' : path.resolve(process.env.DB_PATH || './data/finance.json');
+
+if (isVercel && !fs.existsSync('/tmp/finance.json')) {
+  const pkgData = path.resolve(__dirname, './data/finance.json');
+  if (fs.existsSync(pkgData)) {
+    try { fs.copyFileSync(pkgData, '/tmp/finance.json'); } catch(e) {}
+  }
+}
+
 try {
   fs.mkdirSync(path.dirname(DATA), { recursive: true });
 } catch (e) {
   DATA = '/tmp/finance.json';
 }
-let db = { users: [], transactions: [], plans: [], audit: [], sessions: [], seq: { user: 0, transaction: 0, plan: 0, audit: 0 } };
+
+let db = { users: [], transactions: [], plans: [], audit: [], seq: { user: 0, transaction: 0, plan: 0, audit: 0 } };
 if (fs.existsSync(DATA)) {
   try { db = JSON.parse(fs.readFileSync(DATA, 'utf8')); }
   catch (e) { console.error('Invalid data file', e); }
 }
-if (!db.sessions) db.sessions = [];
 if (!db.seq) db.seq = { user: 0, transaction: 0, plan: 0, audit: 0 };
+if (!Array.isArray(db.users)) db.users = [];
+if (!Array.isArray(db.transactions)) db.transactions = [];
+if (!Array.isArray(db.plans)) db.plans = [];
 
-const sessions = new Map(), attempts = new Map();
+const attempts = new Map();
 const save = () => {
   try {
     const tmp = DATA + '.tmp';
@@ -31,17 +44,45 @@ const save = () => {
   }
 };
 
+const signToken = (payload) => {
+  const dataStr = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const hmac = crypto.createHmac('sha256', SECRET).update(dataStr).digest('base64url');
+  return `${dataStr}.${hmac}`;
+};
+
+const verifyToken = (tokenStr) => {
+  if (!tokenStr || typeof tokenStr !== 'string') return null;
+  const parts = tokenStr.split('.');
+  if (parts.length !== 2) return null;
+  const [dataStr, sig] = parts;
+  const expectedHmac = crypto.createHmac('sha256', SECRET).update(dataStr).digest('base64url');
+  if (sig !== expectedHmac) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(dataStr, 'base64url').toString('utf8'));
+    if (payload.exp && Date.now() > payload.exp) return null;
+    return payload;
+  } catch (e) {
+    return null;
+  }
+};
+
 const id = t => ++db.seq[t]; const now = () => new Date().toISOString(); const money = v => Math.round(Number(v) * 100); const amount = v => Number((v / 100).toFixed(2));
 const cookie = req => Object.fromEntries((req.headers.cookie || '').split(';').filter(Boolean).map(x => x.trim().split('=')));
-const sessionOf = req => {
-  const tokenHeader = req.headers['x-session-token'];
-  const sid = (tokenHeader ? tokenHeader.split(':')[0] : '') || cookie(req).sid;
-  if (!sid) return null;
-  let s = (db.sessions || []).find(x => x.sid === sid);
-  if (!s && sessions.has(sid)) s = sessions.get(sid);
-  return s || null;
+
+const sessionOf = (req) => {
+  const headerToken = req.headers['x-session-token'];
+  const tokenStr = (headerToken ? headerToken : '') || cookie(req).sid || '';
+  return verifyToken(tokenStr);
 };
-const userOf = req => { const s = sessionOf(req); return s && db.users.find(u => u.id === s.userId); };
+
+const userOf = (req) => {
+  const s = sessionOf(req);
+  if (!s) return null;
+  const found = db.users.find(u => u.id === s.userId || u.email === s.email);
+  if (found) return found;
+  return { id: s.userId, name: s.name, email: s.email, currency: s.currency || 'INR' };
+};
+
 const json = (res, status, obj, headers = {}) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store', ...headers }); res.end(JSON.stringify(obj)); };
 const body = req => new Promise((resolve, reject) => { let s = ''; req.on('data', c => { s += c; if (s.length > 2e6) { reject(new Error('Payload too large')); req.destroy(); } }); req.on('end', () => { try { resolve(s ? JSON.parse(s) : {}); } catch { reject(new Error('Invalid JSON')); } }); });
 const hashPassword = p => { const salt = crypto.randomBytes(16); const hash = crypto.scryptSync(p, salt, 64); return `${salt.toString('hex')}:${hash.toString('hex')}`; };
@@ -57,25 +98,19 @@ const clean = t => {
   return { txn_date: date, type, category, amount_paise: money(amt), account: String(t.account || '').slice(0, 80), payment_mode: String(t.payment_mode || '').slice(0, 50), merchant: String(t.merchant || '').slice(0, 120), notes: String(t.notes || '').slice(0, 500), recurring: !!t.recurring, updated_at: now() };
 };
 
-const createSession = (userId) => {
-  const sid = crypto.randomBytes(32).toString('hex');
-  const token = crypto.randomBytes(24).toString('hex');
-  const sessionObj = { sid, userId, csrf: token, at: now() };
-  sessions.set(sid, sessionObj);
-  if (!db.sessions) db.sessions = [];
-  db.sessions.push(sessionObj);
-  if (db.sessions.length > 500) db.sessions = db.sessions.slice(-500);
-  save();
-  return { sid, token, sessionToken: `${sid}:${token}` };
+const createSession = (user) => {
+  const csrfToken = crypto.randomBytes(24).toString('hex');
+  const payload = {
+    userId: user.id,
+    name: user.name,
+    email: user.email,
+    currency: user.currency || 'INR',
+    csrf: csrfToken,
+    exp: Date.now() + 30 * 86400 * 1000
+  };
+  const tokenStr = signToken(payload);
+  return { sid: tokenStr, token: csrfToken, sessionToken: tokenStr };
 };
-
-// Seed demo account if db.users is empty
-if (!db.users || db.users.length === 0) {
-  const demoEmail = 'demo@finance.com';
-  const demoUser = { id: id('user'), name: 'Demo Account', email: demoEmail, password_hash: hashPassword('Password1234!'), currency: 'INR', created_at: now() };
-  db.users.push(demoUser);
-  save();
-}
 
 async function geminiFinance(user, message, year) {
   const key = process.env.GEMINI_API_KEY;
@@ -209,7 +244,7 @@ const serverHandler = async (req, res) => {
         const user = { id: id('user'), name, email, password_hash: hashPassword(password), currency: 'INR', created_at: now() };
         db.users.push(user);
         audit(user.id, 'create', 'user', user.id);
-        const { sid, token, sessionToken } = createSession(user.id);
+        const { sid, token, sessionToken } = createSession(user);
         return json(res, 200, { ok: true, csrfToken: token, sessionToken }, { 'Set-Cookie': `sid=${sid}; HttpOnly; SameSite=Lax; Path=/; Max-Age=1209600${process.env.NODE_ENV === 'production' ? '; Secure' : ''}` });
       }
       const emailInput = String(b.email || '').trim().toLowerCase();
@@ -222,7 +257,7 @@ const serverHandler = async (req, res) => {
         return json(res, 401, { error: 'Incorrect password.' });
       }
       attempts.delete(key);
-      const { sid, token, sessionToken } = createSession(user.id);
+      const { sid, token, sessionToken } = createSession(user);
       audit(user.id, 'login', 'session');
       return json(res, 200, { ok: true, csrfToken: token, sessionToken }, { 'Set-Cookie': `sid=${sid}; HttpOnly; SameSite=Lax; Path=/; Max-Age=1209600${process.env.NODE_ENV === 'production' ? '; Secure' : ''}` });
     }

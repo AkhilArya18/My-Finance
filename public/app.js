@@ -49,21 +49,6 @@ function handleAuthSuccess(d){
 }
 $('#loginForm').onsubmit=async e=>{e.preventDefault();try{const body=Object.fromEntries(new FormData(e.target));const d=await api('/api/login',{method:'POST',body:JSON.stringify(body)});handleAuthSuccess(d);await loadUser();setupYears();fillCategories();showApp();await refreshAll()}catch(err){toast(err.message,true)}};
 $('#registerForm').onsubmit=async e=>{e.preventDefault();try{const body=Object.fromEntries(new FormData(e.target));const d=await api('/api/register',{method:'POST',body:JSON.stringify(body)});handleAuthSuccess(d);await loadUser();setupYears();fillCategories();showApp();await refreshAll()}catch(err){toast(err.message,true)}};
-$('#demoLoginBtn').onclick=async()=>{
-  try{
-    const d=await api('/api/login',{method:'POST',body:JSON.stringify({email:'demo@finance.com',password:'Password1234!'})});
-    handleAuthSuccess(d);
-    await loadUser();setupYears();fillCategories();showApp();await refreshAll();
-    toast('Logged into Demo Account successfully!');
-  }catch(err){
-    try{
-      const d=await api('/api/register',{method:'POST',body:JSON.stringify({name:'Demo Account',email:'demo@finance.com',password:'Password1234!'})});
-      handleAuthSuccess(d);
-      await loadUser();setupYears();fillCategories();showApp();await refreshAll();
-      toast('Demo Account created!');
-    }catch(rErr){ toast(rErr.message,true); }
-  }
-};
 $('#logoutBtn').onclick=async()=>{await api('/api/logout',{method:'POST'}).catch(()=>{});state.sessionToken='';localStorage.removeItem('finance_session');showAuth()};$$('.nav').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
 $('#yearSelect').onchange=async e=>{state.year=Number(e.target.value);$('#planYearLabel').textContent=state.year;await refreshAll()};
 $('#quickAdd').onclick=$('#addTransaction').onclick=()=>openTransaction();$('#closeDialog').onclick=$('#cancelDialog').onclick=()=>$('#transactionDialog').close();$('#txnType').onchange=()=>fillTxnCategory();
