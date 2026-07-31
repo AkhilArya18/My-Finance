@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lifetime Finance Tracker</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+  <section id="authView" class="auth-shell">
+    <div class="auth-card">
+      <div class="brand-mark">₹</div>
+      <h1>Lifetime Finance Tracker</h1>
+      <p class="muted">Private expense, income, investment and annual planning for India.</p>
+      <div class="auth-tabs"><button class="active" data-auth-tab="login">Sign in</button><button data-auth-tab="register">Create account</button></div>
+      <form id="loginForm" class="stack">
+        <label>Email<input name="email" type="email" required autocomplete="email"></label>
+        <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
+        <button class="primary" type="submit">Sign in securely</button>
+      </form>
+      <form id="registerForm" class="stack hidden">
+        <label>Full name<input name="name" required maxlength="80"></label>
+        <label>Email<input name="email" type="email" required autocomplete="email"></label>
+        <label>Password<input name="password" type="password" minlength="12" required autocomplete="new-password"></label>
+        <small>Use at least 12 characters. Your password is stored only as a secure hash.</small>
+        <button class="primary" type="submit">Create private account</button>
+      </form>
+    </div>
+  </section>
+
+  <div id="appView" class="app hidden">
+    <aside class="sidebar">
+      <div class="logo"><span>₹</span><div><strong>My Finance</strong><small>Lifetime Tracker</small></div></div>
+      <nav>
+        <button class="nav active" data-view="dashboard">◫ Annual Summary</button>
+        <button class="nav" data-view="transactions">▤ Transactions Sheet</button>
+        <button class="nav" data-view="plans">◎ Plans & Budgets</button>
+        <button class="nav" data-view="ai">✦ Gemini Finance AI</button>
+        <button class="nav" data-view="data">⇩ Data & Backup</button>
+      </nav>
+      <div class="sidebar-bottom"><div id="userBadge"></div><button id="logoutBtn" class="link-btn">Sign out</button></div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div><h2 id="pageTitle">Annual Summary</h2><p id="pageSubtitle">Your complete financial view for the selected year.</p></div>
+        <div class="top-actions"><select id="yearSelect"></select><button id="quickAdd" class="primary">+ Add entry</button></div>
+      </header>
+
+      <section id="dashboardView" class="view">
+        <div class="kpi-grid">
+          <article class="kpi"><span>Total Income</span><strong id="kpiIncome">₹0</strong><small>Money received</small></article>
+          <article class="kpi"><span>Total Expenses</span><strong id="kpiExpense">₹0</strong><small>Money spent</small></article>
+          <article class="kpi"><span>Total Investments</span><strong id="kpiInvestment">₹0</strong><small>Wealth-building contributions</small></article>
+          <article class="kpi"><span>Net Cash Flow</span><strong id="kpiNet">₹0</strong><small>Income − spending − investing</small></article>
+        </div>
+        <div class="metric-strip">
+          <div><span>Savings rate</span><strong id="savingsRate">0%</strong></div>
+          <div><span>Investment rate</span><strong id="investmentRate">0%</strong></div>
+          <div><span>Liability payments</span><strong id="liabilityTotal">₹0</strong></div>
+          <div><span>Financial status</span><strong id="financialStatus">No data</strong></div>
+        </div>
+        <div class="grid-2">
+          <article class="panel"><div class="panel-head"><div><h3>Monthly cash movement</h3><p>Income, expenses and investments by month</p></div></div><div class="chart-wrap"><canvas id="monthlyChart"></canvas></div></article>
+          <article class="panel"><div class="panel-head"><div><h3>Expense distribution</h3><p>Where your money was spent</p></div></div><div class="chart-wrap"><canvas id="expenseChart"></canvas></div></article>
+        </div>
+        <div class="grid-2">
+          <article class="panel"><div class="panel-head"><div><h3>Plan vs actual</h3><p>Annual target progress</p></div></div><div id="planProgress" class="progress-list empty-state">Add plans to compare targets.</div></article>
+          <article class="panel"><div class="panel-head"><div><h3>Financial insights</h3><p>Automated observations from your entries</p></div></div><div id="insights" class="insights"></div></article>
+        </div>
+      </section>
+
+      <section id="transactionsView" class="view hidden">
+        <article class="panel">
+          <div class="toolbar">
+            <div class="filters"><select id="filterType"><option value="">All types</option><option value="income">Income</option><option value="expense">Expense</option><option value="investment">Investment</option><option value="liability">Liability</option></select><input id="searchBox" placeholder="Search category, merchant or notes"></div>
+            <div><button id="exportCsv" class="secondary">Export CSV</button><button id="addTransaction" class="primary">+ Add transaction</button></div>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Merchant / Source</th><th>Account</th><th class="right">Amount</th><th></th></tr></thead><tbody id="transactionRows"></tbody></table></div>
+          <div id="transactionEmpty" class="empty-state hidden">No entries found for this year.</div>
+        </article>
+      </section>
+
+      <section id="plansView" class="view hidden">
+        <div class="grid-2 plan-layout">
+          <article class="panel"><h3>Add annual target</h3><p class="muted">Set category-level income, expense, investment or liability goals.</p>
+            <form id="planForm" class="form-grid">
+              <label>Type<select name="plan_type" id="planType"><option value="expense">Expense budget</option><option value="investment">Investment target</option><option value="income">Income target</option><option value="liability">Liability repayment</option></select></label>
+              <label>Category<select name="category" id="planCategory"></select></label>
+              <label>Annual target (₹)<input name="target" type="number" min="0" step="0.01" required></label>
+              <label>Notes<input name="notes" maxlength="300" placeholder="Optional"></label>
+              <button class="primary full" type="submit">Save target</button>
+            </form>
+          </article>
+          <article class="panel"><h3>Targets for <span id="planYearLabel"></span></h3><div id="planRows" class="plan-list"></div></article>
+        </div>
+      </section>
+
+
+      <section id="aiView" class="view hidden">
+        <div class="grid-2 ai-layout">
+          <article class="panel">
+            <div class="panel-head"><div><h3>Gemini Finance AI</h3><p>Describe a transaction naturally or ask about your dashboard.</p></div></div>
+            <div id="aiMessages" class="ai-messages"><div class="ai-message assistant">Try: “Spent ₹850 on groceries through UPI today” or “How can I improve my savings rate this year?”</div></div>
+            <form id="aiForm" class="ai-form"><textarea id="aiInput" maxlength="2000" rows="3" placeholder="Ask Gemini or record a transaction..."></textarea><button class="primary" type="submit">Send</button></form>
+          </article>
+          <article class="panel"><h3>AI permissions</h3><p>Gemini receives only your selected-year summary and recent transactions through the secure backend. The API key is never exposed to the browser.</p><div class="check-grid"><div>✓ Read dashboard summary</div><div>✓ Review recent entries</div><div>✓ Add clear transactions</div><div>✓ Suggest budgets</div><div>✓ Explain spending patterns</div><div>✓ No direct database credentials</div></div><p class="muted">Review AI-created entries. AI guidance is educational and is not regulated financial advice.</p></article>
+        </div>
+      </section>
+
+      <section id="dataView" class="view hidden">
+        <div class="grid-2">
+          <article class="panel"><h3>Export and backup</h3><p>Download a complete JSON backup containing every transaction and plan. Store an encrypted copy in two safe locations.</p><div class="button-stack"><button id="backupBtn" class="primary">Download complete backup</button><button id="csvBtn2" class="secondary">Download selected year CSV</button></div></article>
+          <article class="panel"><h3>Restore backup</h3><p>Restore a backup created by this app. Existing entries in this account will be replaced.</p><label class="file-drop">Choose JSON backup<input id="restoreFile" type="file" accept="application/json,.json"></label><button id="restoreBtn" class="danger" disabled>Restore selected backup</button></article>
+        </div>
+        <article class="panel security-panel"><h3>Protection checklist</h3><div class="check-grid"><div>✓ Password hashing</div><div>✓ Secure server sessions</div><div>✓ CSRF protection</div><div>✓ Login rate limiting</div><div>✓ Security headers</div><div>✓ Audit trail</div><div>✓ Local database ownership</div><div>✓ Portable backups</div></div><p class="muted">For internet deployment, use HTTPS, a strong SESSION_SECRET, encrypted server disks, automated backups and restricted server access.</p></article>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="transactionDialog">
+    <form id="transactionForm" method="dialog">
+      <div class="dialog-head"><div><h3 id="dialogTitle">Add transaction</h3><p>Record an expense, income, investment or liability payment.</p></div><button type="button" class="icon-btn" id="closeDialog">×</button></div>
+      <input type="hidden" name="id">
+      <div class="form-grid two">
+        <label>Date<input name="txn_date" type="date" required></label>
+        <label>Type<select name="type" id="txnType"><option value="expense">Expense</option><option value="income">Income</option><option value="investment">Investment</option><option value="liability">Liability payment</option></select></label>
+        <label>Category<select name="category" id="txnCategory" required></select></label>
+        <label>Amount (₹)<input name="amount" type="number" min="0" step="0.01" required></label>
+        <label>Merchant / Source<input name="merchant" maxlength="120" placeholder="e.g. BigBasket, Salary"></label>
+        <label>Account<input name="account" maxlength="80" placeholder="e.g. HDFC, Cash, UPI"></label>
+        <label>Payment mode<select name="payment_mode"><option value="">Select</option><option>UPI</option><option>Credit Card</option><option>Debit Card</option><option>Net Banking</option><option>Cash</option><option>Auto Debit</option><option>Cheque</option><option>Other</option></select></label>
+        <label class="checkbox"><input name="recurring" type="checkbox"> Recurring entry</label>
+        <label class="full">Notes<textarea name="notes" maxlength="500" rows="3"></textarea></label>
+      </div>
+      <div class="dialog-actions"><button type="button" class="secondary" id="cancelDialog">Cancel</button><button type="submit" class="primary">Save entry</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

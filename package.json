@@ -1,0 +1,9 @@
+{
+  "name": "lifetime-finance-tracker-india",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Self-hosted personal expense, income, investment and annual planning tracker for India",
+  "main": "server.js",
+  "scripts": {"start":"node server.js","dev":"node --watch server.js"},
+  "engines":{"node":">=20"}
+}
