@@ -1,8 +1,23 @@
-const state={csrf:'',user:null,year:new Date().getFullYear(),categories:{},transactions:[],plans:[],summary:null,charts:{}};
+const state={csrf:'',sessionToken:localStorage.getItem('finance_session')||'',user:null,year:new Date().getFullYear(),categories:{},transactions:[],plans:[],summary:null,charts:{}};
 const $=s=>document.querySelector(s);const $$=s=>[...document.querySelectorAll(s)];
 const money=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(Number(n||0));
-const toast=(m,error=false)=>{const el=$('#toast');el.textContent=m;el.className='toast show'+(error?' error':'');setTimeout(()=>el.className='toast',2600)};
-async function api(url,options={}){const headers={'Content-Type':'application/json',...(options.headers||{})};if(state.csrf)headers['x-csrf-token']=state.csrf;const r=await fetch(url,{...options,headers});if(r.status===401){showAuth();throw new Error('Please sign in again.')}const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||'Request failed');return data}
+const toast=(m,error=false)=>{const el=$('#toast');el.textContent=m;el.className='toast show'+(error?' error':'');setTimeout(()=>el.className='toast',3200)};
+async function api(url,options={}){
+  const headers={'Content-Type':'application/json',...(options.headers||{})};
+  if(state.csrf)headers['x-csrf-token']=state.csrf;
+  const st=state.sessionToken||localStorage.getItem('finance_session');
+  if(st)headers['x-session-token']=st;
+  const r=await fetch(url,{...options,headers});
+  if(r.status===401){
+    localStorage.removeItem('finance_session');
+    state.sessionToken='';
+    showAuth();
+    throw new Error('Authentication required. Please sign in or use Demo Account.');
+  }
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(data.error||'Request failed');
+  return data;
+}
 function showAuth(){$('#authView').classList.remove('hidden');$('#appView').classList.add('hidden')}
 function showApp(){$('#authView').classList.add('hidden');$('#appView').classList.remove('hidden')}
 async function init(){const cfg=await api('/api/config');state.categories=cfg.categories;state.csrf=cfg.csrfToken;if(cfg.authenticated){await loadUser();setupYears();fillCategories();showApp();await refreshAll()}else showAuth()}
@@ -24,9 +39,32 @@ function fillTxnCategory(selected){const type=$('#txnType').value;$('#txnCategor
 function escapeHtml(s){return String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
 function switchView(name){$$('.view').forEach(v=>v.classList.add('hidden'));$(`#${name}View`).classList.remove('hidden');$$('.nav').forEach(n=>n.classList.toggle('active',n.dataset.view===name));const labels={dashboard:['Annual Summary','Your complete financial view for the selected year.'],transactions:['Transactions Sheet','Add, edit, search and export every financial entry.'],plans:['Plans & Budgets','Set annual category targets and track actual progress.'],ai:['Gemini Finance AI','Chat with your financial data or add entries using natural language.'],data:['Data & Backup','Own, export and restore your financial records.']};$('#pageTitle').textContent=labels[name][0];$('#pageSubtitle').textContent=labels[name][1]}
 $$('[data-auth-tab]').forEach(b=>b.onclick=()=>{$$('[data-auth-tab]').forEach(x=>x.classList.toggle('active',x===b));$('#loginForm').classList.toggle('hidden',b.dataset.authTab!=='login');$('#registerForm').classList.toggle('hidden',b.dataset.authTab!=='register')});
-$('#loginForm').onsubmit=async e=>{e.preventDefault();try{const body=Object.fromEntries(new FormData(e.target));const d=await api('/api/login',{method:'POST',body:JSON.stringify(body)});state.csrf=d.csrfToken;await loadUser();setupYears();fillCategories();showApp();await refreshAll()}catch(err){toast(err.message,true)}};
-$('#registerForm').onsubmit=async e=>{e.preventDefault();try{const body=Object.fromEntries(new FormData(e.target));const d=await api('/api/register',{method:'POST',body:JSON.stringify(body)});state.csrf=d.csrfToken;await loadUser();setupYears();fillCategories();showApp();await refreshAll()}catch(err){toast(err.message,true)}};
-$('#logoutBtn').onclick=async()=>{await api('/api/logout',{method:'POST'});showAuth()};$$('.nav').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
+
+function handleAuthSuccess(d){
+  state.csrf=d.csrfToken;
+  if(d.sessionToken){
+    state.sessionToken=d.sessionToken;
+    localStorage.setItem('finance_session',d.sessionToken);
+  }
+}
+$('#loginForm').onsubmit=async e=>{e.preventDefault();try{const body=Object.fromEntries(new FormData(e.target));const d=await api('/api/login',{method:'POST',body:JSON.stringify(body)});handleAuthSuccess(d);await loadUser();setupYears();fillCategories();showApp();await refreshAll()}catch(err){toast(err.message,true)}};
+$('#registerForm').onsubmit=async e=>{e.preventDefault();try{const body=Object.fromEntries(new FormData(e.target));const d=await api('/api/register',{method:'POST',body:JSON.stringify(body)});handleAuthSuccess(d);await loadUser();setupYears();fillCategories();showApp();await refreshAll()}catch(err){toast(err.message,true)}};
+$('#demoLoginBtn').onclick=async()=>{
+  try{
+    const d=await api('/api/login',{method:'POST',body:JSON.stringify({email:'demo@finance.com',password:'Password1234!'})});
+    handleAuthSuccess(d);
+    await loadUser();setupYears();fillCategories();showApp();await refreshAll();
+    toast('Logged into Demo Account successfully!');
+  }catch(err){
+    try{
+      const d=await api('/api/register',{method:'POST',body:JSON.stringify({name:'Demo Account',email:'demo@finance.com',password:'Password1234!'})});
+      handleAuthSuccess(d);
+      await loadUser();setupYears();fillCategories();showApp();await refreshAll();
+      toast('Demo Account created!');
+    }catch(rErr){ toast(rErr.message,true); }
+  }
+};
+$('#logoutBtn').onclick=async()=>{await api('/api/logout',{method:'POST'}).catch(()=>{});state.sessionToken='';localStorage.removeItem('finance_session');showAuth()};$$('.nav').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
 $('#yearSelect').onchange=async e=>{state.year=Number(e.target.value);$('#planYearLabel').textContent=state.year;await refreshAll()};
 $('#quickAdd').onclick=$('#addTransaction').onclick=()=>openTransaction();$('#closeDialog').onclick=$('#cancelDialog').onclick=()=>$('#transactionDialog').close();$('#txnType').onchange=()=>fillTxnCategory();
 $('#transactionForm').onsubmit=async e=>{e.preventDefault();const f=e.target,body=Object.fromEntries(new FormData(f));body.recurring=f.recurring.checked;const id=body.id;delete body.id;try{await api(id?`/api/transactions/${id}`:'/api/transactions',{method:id?'PUT':'POST',body:JSON.stringify(body)});$('#transactionDialog').close();toast(id?'Entry updated':'Entry added');await refreshAll()}catch(err){toast(err.message,true)}};

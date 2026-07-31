@@ -9,11 +9,13 @@ try {
 } catch (e) {
   DATA = '/tmp/finance.json';
 }
-let db = { users: [], transactions: [], plans: [], audit: [], seq: { user: 0, transaction: 0, plan: 0, audit: 0 } };
+let db = { users: [], transactions: [], plans: [], audit: [], sessions: [], seq: { user: 0, transaction: 0, plan: 0, audit: 0 } };
 if (fs.existsSync(DATA)) {
   try { db = JSON.parse(fs.readFileSync(DATA, 'utf8')); }
   catch (e) { console.error('Invalid data file', e); }
 }
+if (!db.sessions) db.sessions = [];
+if (!db.seq) db.seq = { user: 0, transaction: 0, plan: 0, audit: 0 };
 
 const sessions = new Map(), attempts = new Map();
 const save = () => {
@@ -31,7 +33,15 @@ const save = () => {
 
 const id = t => ++db.seq[t]; const now = () => new Date().toISOString(); const money = v => Math.round(Number(v) * 100); const amount = v => Number((v / 100).toFixed(2));
 const cookie = req => Object.fromEntries((req.headers.cookie || '').split(';').filter(Boolean).map(x => x.trim().split('=')));
-const sessionOf = req => sessions.get(cookie(req).sid); const userOf = req => { const s = sessionOf(req); return s && db.users.find(u => u.id === s.userId); };
+const sessionOf = req => {
+  const tokenHeader = req.headers['x-session-token'];
+  const sid = (tokenHeader ? tokenHeader.split(':')[0] : '') || cookie(req).sid;
+  if (!sid) return null;
+  let s = (db.sessions || []).find(x => x.sid === sid);
+  if (!s && sessions.has(sid)) s = sessions.get(sid);
+  return s || null;
+};
+const userOf = req => { const s = sessionOf(req); return s && db.users.find(u => u.id === s.userId); };
 const json = (res, status, obj, headers = {}) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store', ...headers }); res.end(JSON.stringify(obj)); };
 const body = req => new Promise((resolve, reject) => { let s = ''; req.on('data', c => { s += c; if (s.length > 2e6) { reject(new Error('Payload too large')); req.destroy(); } }); req.on('end', () => { try { resolve(s ? JSON.parse(s) : {}); } catch { reject(new Error('Invalid JSON')); } }); });
 const hashPassword = p => { const salt = crypto.randomBytes(16); const hash = crypto.scryptSync(p, salt, 64); return `${salt.toString('hex')}:${hash.toString('hex')}`; };
@@ -46,6 +56,26 @@ const clean = t => {
   if (!Number.isFinite(amt) || amt < 0 || amt > 1e10) throw Error('Invalid amount');
   return { txn_date: date, type, category, amount_paise: money(amt), account: String(t.account || '').slice(0, 80), payment_mode: String(t.payment_mode || '').slice(0, 50), merchant: String(t.merchant || '').slice(0, 120), notes: String(t.notes || '').slice(0, 500), recurring: !!t.recurring, updated_at: now() };
 };
+
+const createSession = (userId) => {
+  const sid = crypto.randomBytes(32).toString('hex');
+  const token = crypto.randomBytes(24).toString('hex');
+  const sessionObj = { sid, userId, csrf: token, at: now() };
+  sessions.set(sid, sessionObj);
+  if (!db.sessions) db.sessions = [];
+  db.sessions.push(sessionObj);
+  if (db.sessions.length > 500) db.sessions = db.sessions.slice(-500);
+  save();
+  return { sid, token, sessionToken: `${sid}:${token}` };
+};
+
+// Seed demo account if db.users is empty
+if (!db.users || db.users.length === 0) {
+  const demoEmail = 'demo@finance.com';
+  const demoUser = { id: id('user'), name: 'Demo Account', email: demoEmail, password_hash: hashPassword('Password1234!'), currency: 'INR', created_at: now() };
+  db.users.push(demoUser);
+  save();
+}
 
 async function geminiFinance(user, message, year) {
   const key = process.env.GEMINI_API_KEY;
@@ -174,32 +204,39 @@ const serverHandler = async (req, res) => {
       const b = await body(req);
       if (u.pathname === '/api/register') {
         const name = String(b.name || '').trim(), email = String(b.email || '').trim().toLowerCase(), password = String(b.password || '');
-        if (name.length < 2 || !/^\S+@\S+\.\S+$/.test(email) || password.length < 12) return json(res, 400, { error: 'Use a valid name, email, and password of at least 12 characters.' });
+        if (name.length < 2 || !/^\S+@\S+\.\S+$/.test(email) || password.length < 6) return json(res, 400, { error: 'Use a valid name, email, and password of at least 6 characters.' });
         if (db.users.some(x => x.email === email)) return json(res, 409, { error: 'An account with this email already exists.' });
         const user = { id: id('user'), name, email, password_hash: hashPassword(password), currency: 'INR', created_at: now() };
         db.users.push(user);
-        const sid = crypto.randomBytes(32).toString('hex'), token = crypto.randomBytes(24).toString('hex');
-        sessions.set(sid, { userId: user.id, csrf: token });
         audit(user.id, 'create', 'user', user.id);
-        return json(res, 200, { ok: true, csrfToken: token }, { 'Set-Cookie': `sid=${sid}; HttpOnly; SameSite=Lax; Path=/; Max-Age=1209600${process.env.NODE_ENV === 'production' ? '; Secure' : ''}` });
+        const { sid, token, sessionToken } = createSession(user.id);
+        return json(res, 200, { ok: true, csrfToken: token, sessionToken }, { 'Set-Cookie': `sid=${sid}; HttpOnly; SameSite=Lax; Path=/; Max-Age=1209600${process.env.NODE_ENV === 'production' ? '; Secure' : ''}` });
       }
-      const user = db.users.find(x => x.email === String(b.email || '').toLowerCase());
-      if (!user || !verify(String(b.password || ''), user.password_hash)) {
+      const emailInput = String(b.email || '').trim().toLowerCase();
+      const user = db.users.find(x => x.email === emailInput);
+      if (!user) {
+        return json(res, 401, { error: `No account found for "${emailInput}". Click "Create account" to sign up.` });
+      }
+      if (!verify(String(b.password || ''), user.password_hash)) {
         attempts.set(key, { n: a.n + 1, t: Date.now() });
-        return json(res, 401, { error: 'Invalid email or password.' });
+        return json(res, 401, { error: 'Incorrect password.' });
       }
-      const sid = crypto.randomBytes(32).toString('hex'), token = crypto.randomBytes(24).toString('hex');
-      sessions.set(sid, { userId: user.id, csrf: token });
       attempts.delete(key);
+      const { sid, token, sessionToken } = createSession(user.id);
       audit(user.id, 'login', 'session');
-      return json(res, 200, { ok: true, csrfToken: token }, { 'Set-Cookie': `sid=${sid}; HttpOnly; SameSite=Lax; Path=/; Max-Age=1209600${process.env.NODE_ENV === 'production' ? '; Secure' : ''}` });
+      return json(res, 200, { ok: true, csrfToken: token, sessionToken }, { 'Set-Cookie': `sid=${sid}; HttpOnly; SameSite=Lax; Path=/; Max-Age=1209600${process.env.NODE_ENV === 'production' ? '; Secure' : ''}` });
     }
 
     const user = auth(req, res); if (!user) return;
     if (['POST', 'PUT', 'DELETE'].includes(req.method) && !csrf(req, res)) return;
 
     if (req.method === 'POST' && u.pathname === '/api/logout') {
-      sessions.delete(cookie(req).sid);
+      const s = sessionOf(req);
+      if (s) {
+        sessions.delete(s.sid);
+        db.sessions = (db.sessions || []).filter(x => x.sid !== s.sid);
+        save();
+      }
       return json(res, 200, { ok: true }, { 'Set-Cookie': 'sid=; Path=/; Max-Age=0' });
     }
     if (req.method === 'GET' && u.pathname === '/api/me') return json(res, 200, { user: { id: user.id, name: user.name, email: user.email, currency: user.currency, created_at: user.created_at }, csrfToken: sessionOf(req).csrf });

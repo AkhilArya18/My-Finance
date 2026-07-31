@@ -17,15 +17,16 @@
       <p class="muted">Private expense, income, investment and annual planning for India.</p>
       <div class="auth-tabs"><button class="active" data-auth-tab="login">Sign in</button><button data-auth-tab="register">Create account</button></div>
       <form id="loginForm" class="stack">
-        <label>Email<input name="email" type="email" required autocomplete="email"></label>
-        <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
+        <label>Email<input name="email" type="email" placeholder="you@example.com" required autocomplete="email"></label>
+        <label>Password<input name="password" type="password" placeholder="••••••••" required autocomplete="current-password"></label>
         <button class="primary" type="submit">Sign in securely</button>
+        <button type="button" id="demoLoginBtn" class="secondary">⚡ Demo 1-Click Sign in</button>
       </form>
       <form id="registerForm" class="stack hidden">
-        <label>Full name<input name="name" required maxlength="80"></label>
-        <label>Email<input name="email" type="email" required autocomplete="email"></label>
-        <label>Password<input name="password" type="password" minlength="12" required autocomplete="new-password"></label>
-        <small>Use at least 12 characters. Your password is stored only as a secure hash.</small>
+        <label>Full name<input name="name" required maxlength="80" placeholder="Your name"></label>
+        <label>Email<input name="email" type="email" required autocomplete="email" placeholder="you@example.com"></label>
+        <label>Password<input name="password" type="password" minlength="6" required autocomplete="new-password" placeholder="At least 6 characters"></label>
+        <small>Your password is stored securely on your server.</small>
         <button class="primary" type="submit">Create private account</button>
       </form>
     </div>
